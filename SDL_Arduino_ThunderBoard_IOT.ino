@@ -1,98 +1,55 @@
 /*
-
   SDL_Arduino_ThunderBoard_IOT
 
+  Based On:
   SwitchDoc Labs ThunderBoard IOT device
   October 1, 2017
   Version 1.3
-
-
+  Modifed by Jason Jackson
+  August 2018
 */
-
-
-#define VERSIONNUMBER "004ARD"
-
-#undef DEBUG
-
-// User Configuration
-
-
-char ssid[]  = "";            // your network SSID (name)
-char pass[]  = "";        // your network password
-
-bool WiFiPresent = false;
-
-// MQTT setup and PubNub
-
-char pubkey[]  = "pub-xxx";
-char subkey[]  = "sub-xxx";
-
-#define PUBLISHINTERVALSECONDS 30
-
-
-
-//
-
-char channel1[]  = "TBIOT1";
-char channel2[]  = "TBIOT2";
-char uuid[]   = "ArdLightningIOT01";
-
-
-
-
-
-
-#define PubNub_BASE_CLIENT WiFiEspClient
-
+#include "credentials.h" // This file holds your sensitive info.
 #include <time.h>
 // I2c library by Wayne Truchsess
 #include "I2C.h"
 #include "SDL_Arduino_ThunderBoard_AS3935.h"
-
-//#include <Wire.h>
-//#include <Ethernet.h>
 #include "rgb_lcd.h"
-
 #include "TimeLib.h"
 
-
 // MQTT and ESP8266 Libraries
-
 #include <WiFiEspClient.h>
-
 #include <WiFiEsp.h>
-
-
-
-#include "libs/arduino/PubNub.h"
-
-
-
-
 #include "SoftwareSerial.h"
+#include <PubSubClient.h>
 
+#define VERSIONNUMBER "004ARD"
+#define PUBLISHINTERVALSECONDS 30
+#define DEBUG
+#define PubNub_BASE_CLIENT WiFiEspClient
 
-// SET YOUR VARIABLES HERE
-///////////////////////////
+// Senstivie User information is located in credentials.h
+const char ssid[]  = WIFI_SSID;
+const char pass[]  = WIFI_PASSWD;
+const char mqtt_user[] = MQTT_USERNAME;
+const char mqtt_pass[] = MQTT_PASSWD;
+const char server[] = MQTT_ADDRESS;
 
-// WiFi info
-
+int port = 1883;
+String topic = "home/lightning";
+bool setIndoor = true;
+bool disturbersEnabled = true;
+void callback(char* topic, byte* payload, unsigned int length) {
+  //Handle message arrived.
+  Serial.println("callback has arrived");
+}
+WiFiEspClient client;
+PubSubClient pubSubClient(server, port, callback, client);
 SoftwareSerial SoftSerial(3, 4); // RX, TX
-
-
-
+bool WiFiPresent = false;
 int status = WL_IDLE_STATUS;     // the Wifi radio's status
 
-
-
-
 // AS3935 software
-
-
-
-
 void printAS3935Registers();
-
 
 // Iterrupt handler for AS3935 irqs
 // and flag variable that indicates interrupt has been triggered
@@ -100,13 +57,6 @@ void printAS3935Registers();
 // otherwise compiler can optimize them away, assuming they never get changed
 void AS3935Irq();
 volatile int AS3935IrqTriggered;
-
-
-// variables
-
-bool setIndoor = false;
-bool disturbersEnabled = true;
-
 byte LastInterruptResult = 0;
 String LastResult;
 String LastLightningResult = "";
@@ -116,12 +66,8 @@ int InterruptCount = 0;
 byte LightningLastDistance = 0;
 unsigned long InterruptTimeStamp = 0;
 
-
-
-
 // Library object initialization First argument is interrupt pin, second is device I2C address
 SDL_Arduino_ThunderBoard_AS3935 AS3935(2, 0x02);
-
 
 void printAS3935Registers()
 {
@@ -141,21 +87,13 @@ void printAS3935Registers()
 void AS3935Irq()
 {
   AS3935IrqTriggered = 1;
-
-
-
 }
 
-
 // LCD setup
-
 rgb_lcd lcd;
-
-
 
 void breath(unsigned char color)
 {
-
   for (int i = 0; i < 255; i++)
   {
     lcd.setPWM(color, i);
@@ -179,8 +117,6 @@ void bringupcolor(unsigned char color)
     lcd.setPWM(color, i);
     delay(5);
   }
-
-
 }
 
 // make some custom characters:
@@ -196,7 +132,6 @@ byte lightning[8]  = {
   0b00001,
   0b00000
 };
-
 
 byte smiley[8]  = {
   0b00000,
@@ -220,11 +155,8 @@ byte frownie[8]   = {
   0b10001
 };
 
-
 void waitingForLightning()
-
 {
-
   lcd.clear();
   delay(500);
   lcd.setCursor(0, 0);
@@ -235,23 +167,16 @@ void waitingForLightning()
   lcd.write((unsigned char)1);
 
   bringupcolor(REG_GREEN);
-
-
 }
 
 void writeStatus(char myMsg[])
-
 {
-
   lcd.setCursor(15, 1);
   lcd.write(myMsg);
-
-
 }
 
 void buzzUser(int count, int spaceDelay)
 {
-
   int i;
   for (i = 0; i < count; i++)
   {
@@ -263,12 +188,10 @@ void buzzUser(int count, int spaceDelay)
 }
 
 
-
 void do_something(String value) {
   Serial.println(F("in the callback"));
   Serial.println(value);
 }
-
 
 char *dtostrf (double val, signed char width, unsigned char dec, char *s) {
   char m[20];
@@ -279,7 +202,6 @@ char *dtostrf (double val, signed char width, unsigned char dec, char *s) {
 
 String convertTimeToStamp(unsigned long mytime)
 {
-
   String timestamp;
 
   unsigned long hours = mytime / 3600;
@@ -294,7 +216,6 @@ String convertTimeToStamp(unsigned long mytime)
   timestamp.concat(F("\""));
   timestamp.concat( String(hours));
   timestamp.concat( ":");
-
 
   if (minutes < 10)
     timestamp = timestamp + "0";
@@ -311,28 +232,18 @@ String convertTimeToStamp(unsigned long mytime)
 }
 
 // send our JSON message to PubNub
-
 void publishPubNubMessage()
 {
-
-
-  WiFiEspClient *client;
-
-
-
   String message;
   //Publish
-
   Serial.println(F("publishing a message"));
 
   // message 1 (limitation on Arduino - some buffer is overflowing somewhere!)
-
   message = F("{ \"SV\": \"");
   message.concat( VERSIONNUMBER);
   message.concat( "\"");
 
   // send configuration data
-
   message.concat(F( ",\"NF\":"));
   message.concat(F( "\""));
   message.concat( String(AS3935.getNoiseFloor()));// LightningData.Noise_Floor
@@ -344,7 +255,6 @@ void publishPubNubMessage()
   message.concat(F( "\""));
 
   // message = message + F(",\"DL\":") + String(AS3935.getNoiseFloor());// LightningData.Display_LCO
-
   message.concat( F(",\"MS\":"));
   message.concat(F( "\""));
   message.concat( String(AS3935.getMinimumLightnings()));// LightningData.Minimum_Strikes
@@ -360,7 +270,6 @@ void publishPubNubMessage()
   message.concat( String(LastInterruptResult));
   message.concat(F( "\""));
 
-
   message.concat( F(",\"LLR\":"));
   message.concat(F( "\""));
 
@@ -369,97 +278,35 @@ void publishPubNubMessage()
   message.concat( LastLightningResult);
   message.concat( F("\""));
 
-
   message.concat(  "}");
+  
 #ifdef DEBUG
   Serial.println(message);
   Serial.print(F("Size="));
   Serial.println(message.length());
 #endif
 
-  client = PubNub.publish(channel1, message.c_str());
-
-
-  if (!client) {
+  //client = PubNub.publish(channel1, message.c_str());
+  if(pubSubClient.connect("client", mqtt_user, mqtt_pass)) {
+    Serial.println("publishing mqtt message");
+    pubSubClient.publish(topic.c_str(), message.c_str());
+  } else {
     Serial.println(F("publishing error"));
     delay(1000);
     // bad conenction for whatever reason.  Redo the connection
     initWiFiConnection();
     return;
   }
-  client->flush();
-  client->stop();
-
-
-  delay(5000);
-
-  // Message 2
-
-  message = F("{ \"SV\": \"");
-
-  message.concat( VERSIONNUMBER);
-  message.concat( "\"");
-
-
-  message.concat( F(",\"LC\":"));
-  message.concat(F( "\""));
-  message.concat( String(LightningCount));
-  message.concat(F( "\""));
-
-  message.concat( F(",\"LTS\":"));
-  message.concat( convertTimeToStamp(LightningTimeStamp));
-
-  message.concat(F(",\"IC\":"));
-  message.concat(F( "\""));
-  message.concat( String(InterruptCount));
-  message.concat(F( "\""));
-
-  message.concat( F(",\"LLD\":"));
-  message.concat(F( "\""));
-  message.concat( String(LightningLastDistance));
-  message.concat(F( "\""));
-
-  message.concat( F(",\"LPTS\":"));
-  message.concat( convertTimeToStamp(now()));
-
-  message.concat( F(",\"ITS\":"));
-  message.concat( convertTimeToStamp(InterruptTimeStamp));
-
-  message.concat(  "}");
-
-#ifdef DEBUG
-  Serial.println(message);
-  Serial.print(F("Size="));
-  Serial.println(message.length());
-#endif
-
-
-
-
-  client = PubNub.publish(channel2, message.c_str());
-
-  delay(5000);
-
-  if (!client) {
-    Serial.println(F("publishing error"));
-    delay(1000);
-    // bad conenction for whatever reason.  Redo the connection
-    initWiFiConnection();
-    return;
-  }
-  client->flush();
-  client->stop();
-
 
   //Subscribe
   //returnMessage = myBridge.connect(channel);
 
   //Serial.print("returnMessage=");
   //Serial.println(returnMessage);
-
-
 }
-void digitalClockDisplay() {
+
+void digitalClockDisplay() 
+{
   // digital clock display of the time
   Serial.print(hour());
   printDigits(minute());
@@ -481,12 +328,10 @@ void printDigits(int digits) {
   Serial.print(digits);
 }
 
-
 // init wifi for ssid connection
 
 void initWiFiConnection()
 {
-
   status = WL_IDLE_STATUS;
   // initialize ESP module
   WiFi.init(&SoftSerial);
@@ -497,9 +342,6 @@ void initWiFiConnection()
 
   // attempt to connect to WiFi network
   while ( status != WL_CONNECTED) {
-
-
-
     WiFi.reset();
 
     // Connect to WPA/WPA2 network
@@ -507,9 +349,6 @@ void initWiFiConnection()
     Serial.println(ssid);
 
     status = WiFi.begin(ssid, pass);
-
-
-
     tryCount++;
 
     if (tryCount > 3)
@@ -522,13 +361,7 @@ void initWiFiConnection()
     }
   }
   WiFiPresent = true;
-
 }
-
-
-
-
-
 
 /////////////////////////////////////////////////
 long milliseconds;
@@ -548,19 +381,12 @@ void setup()
   I2c.begin();
   I2c.pullup(true);
   I2c.setSpeed(1); //400kHz
-
-
   // Buzzer
 
   pinMode(8, OUTPUT);
-
-
   // LCD
 
   lcd.begin(16, 2);
-
-
-
   lcd.createChar(0, lightning);
   lcd.createChar(1, smiley);
   lcd.createChar(2, frownie);
@@ -579,29 +405,19 @@ void setup()
   lcd.print("V");
   lcd.print(F(VERSIONNUMBER));
 
-
-
   breath(REG_GREEN);
   lcd.setCursor(0, 1);
   lcd.print(F("Initializing"));
   breath(REG_BLUE);
 
   lcd.setRGB(0, 0, 0);
-
-
-
-
   // Print a message to the lcd.
   // create a new character
-
-
-
   //
   // Initialize The AS3935 and calibrate
   //
   // Note:  If you want, you can write down the results of the calibration and just use that value instead of re-running the calibration each time
   //
-
 
   // reset all internal register values to defaults
   AS3935.reset();
@@ -629,8 +445,6 @@ void setup()
   printAS3935Registers();
   AS3935IrqTriggered = 0;
 
-
-
   attachInterrupt(0, AS3935Irq, RISING);
 
   waitingForLightning();
@@ -645,20 +459,20 @@ void setup()
     SoftSerial.println("AT+RST");
     Serial.println("AT+RST");
     char value;
-    while (SoftSerial.available()) {
+    while (SoftSerial.available()) 
+    {
       value = SoftSerial.read();
       Serial.println(value);
-
     }
 
     SoftSerial.println(F("AT"));
     Serial.println(F("AT"));
     delay(1000);
 
-    while (SoftSerial.available()) {
+    while (SoftSerial.available()) 
+    {
       value = SoftSerial.read();
       Serial.println(value);
-
     }
 
     // Baud rates above about 38,000 do not work reliably on the 328p (Pro Mini)
@@ -667,11 +481,10 @@ void setup()
     SoftSerial.println(F("AT+UART_DEF=19200,8,1,0,0"));
     delay(1000);
 
-
-    while (SoftSerial.available()) {
+    while (SoftSerial.available()) 
+    {
       value = SoftSerial.read();
       Serial.println(value);
-
     }
 
     // Restart SoftwareSerial for the slower baud rate for the WiFi
@@ -679,16 +492,11 @@ void setup()
     SoftSerial.end();
     SoftSerial.begin(19200);
 
-
-
     initWiFiConnection();
-
   }  // end of SSID = 0;
   else
   {
     Serial.println(F("ssid for WiFi not set"));
-
-
   }
   // print out current time
   
@@ -708,39 +516,19 @@ void setup()
     Serial.print(F("IP="));
     Serial.println (ip);
   }
-  // set up PubNub
-
-  //myBridge.init( pubkey, subkey, uuid);
 
   if (WiFiPresent == true)
   {
-
-    PubNub.begin(pubkey, subkey);
-
-    Serial.println(F("PubNub set up"));
+    Serial.println(F("WiFi set up"));
   }
-
-
   milliseconds = millis();
-
-
 }
-
-
-
-
 
 void loop()
 {
-
-
-
   // here we go into loop checking if interrupt has been triggered, which kind of defeats
   // the whole purpose of interrupts, but in real life you could put your chip to sleep
   // and lower power consumption or do other nifty things
-
-
-
   if (AS3935IrqTriggered == 1)
   {
     // reset the flag
@@ -764,7 +552,6 @@ void loop()
       LastInterruptResult = irqSource;
     }
 
-
     if (irqSource & 0b0100)
     {
       writeStatus("D");
@@ -772,12 +559,8 @@ void loop()
       LastInterruptResult = irqSource;
     }
 
-
     if (irqSource & 0b1000)
     {
-
-
-
       LastInterruptResult = irqSource;
       // need to find how far that lightning stroke, function returns approximate distance in kilometers,
       // where value 1 represents storm in detector's near victinity, and 63 - very distant, out of range stroke
@@ -824,19 +607,12 @@ void loop()
         delay(4000);
 
         waitingForLightning();
-
-
       }
     }
   }
 
-
-
-
-
   if (millis() > milliseconds + PUBLISHINTERVALSECONDS * 1000)
   {
-
     // print out current time
 #ifdef DEBUG
     digitalClockDisplay();
@@ -848,17 +624,11 @@ void loop()
 
     milliseconds = millis();
   }
-
-
   //Subscribe
   //returnMessage = myBridge.connect(channel);
 
   //Serial.print("returnMessage=");
   //Serial.println(returnMessage);
-
-
-
-
   delay(500);
 }
 
