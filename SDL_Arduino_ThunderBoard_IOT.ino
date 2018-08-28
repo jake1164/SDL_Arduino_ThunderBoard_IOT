@@ -3,10 +3,9 @@
 
   Based On:
   SwitchDoc Labs ThunderBoard IOT device
-  October 1, 2017
-  Version 1.3
   Modifed by Jason Jackson
   August 2018
+  Version 1.3.1
 */
 #include "credentials.h" // This file holds your sensitive info.
 #include <time.h>
@@ -27,6 +26,12 @@
 #define DEBUG
 #define PubNub_BASE_CLIENT WiFiEspClient
 
+// Arduino connections 
+#define WIFI_RX_PIN 3  
+#define WIFI_TX_PIN 4
+#define THUNDER_INT_PIN 2
+#define BUZZER_PIN 8
+
 // Senstivie User information is located in credentials.h
 const char ssid[]  = WIFI_SSID;
 const char pass[]  = WIFI_PASSWD;
@@ -35,7 +40,7 @@ const char mqtt_pass[] = MQTT_PASSWD;
 const char server[] = MQTT_ADDRESS;
 
 int port = 1883;
-String topic = "home/lightning";
+String topic = String("home/lightning/");
 bool setIndoor = true;
 bool disturbersEnabled = true;
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -44,7 +49,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
 }
 WiFiEspClient client;
 PubSubClient pubSubClient(server, port, callback, client);
-SoftwareSerial SoftSerial(3, 4); // RX, TX
+SoftwareSerial SoftSerial(WIFI_RX_PIN, WIFI_TX_PIN); // RX, TX
 bool WiFiPresent = false;
 int status = WL_IDLE_STATUS;     // the Wifi radio's status
 
@@ -67,7 +72,7 @@ byte LightningLastDistance = 0;
 unsigned long InterruptTimeStamp = 0;
 
 // Library object initialization First argument is interrupt pin, second is device I2C address
-SDL_Arduino_ThunderBoard_AS3935 AS3935(2, 0x02);
+SDL_Arduino_ThunderBoard_AS3935 AS3935(THUNDER_INT_PIN, 0x02);
 
 void printAS3935Registers()
 {
@@ -180,9 +185,9 @@ void buzzUser(int count, int spaceDelay)
   int i;
   for (i = 0; i < count; i++)
   {
-    digitalWrite(8, HIGH);
+    digitalWrite(BUZZER_PIN, HIGH);
     delay(spaceDelay);
-    digitalWrite(8, LOW);
+    digitalWrite(BUZZER_PIN, LOW);
     delay(spaceDelay);
   }
 }
@@ -231,8 +236,8 @@ String convertTimeToStamp(unsigned long mytime)
   return timestamp;
 }
 
-// send our JSON message to PubNub
-void publishPubNubMessage()
+// send our JSON message to the MQTT server
+void publishMessage()
 {
   String message;
   //Publish
@@ -286,10 +291,21 @@ void publishPubNubMessage()
   Serial.println(message.length());
 #endif
 
+
+
+
   //client = PubNub.publish(channel1, message.c_str());
   if(pubSubClient.connect("client", mqtt_user, mqtt_pass)) {
-    Serial.println("publishing mqtt message");
-    pubSubClient.publish(topic.c_str(), message.c_str());
+    Serial.println("publishing mqtt messages");
+    pubSubClient.publish(String(topic + "json").c_str(), message.c_str());
+
+    pubSubClient.publish(String(topic + "SV").c_str(), VERSIONNUMBER);
+    pubSubClient.publish(String(topic + "NF").c_str(), String(AS3935.getNoiseFloor()).c_str());
+    pubSubClient.publish(String(topic + "IS").c_str(), String(setIndoor ? 1 : 0).c_str());
+    pubSubClient.publish(String(topic + "MS").c_str(), String(AS3935.getMinimumLightnings()).c_str());
+    pubSubClient.publish(String(topic + "MD").c_str(), String(disturbersEnabled ? 1 : 0).c_str());
+    pubSubClient.publish(String(topic + "LIR").c_str(), String(LastInterruptResult).c_str());
+    pubSubClient.publish(String(topic + "LLR").c_str(), LastLightningResult.c_str());
   } else {
     Serial.println(F("publishing error"));
     delay(1000);
@@ -381,11 +397,11 @@ void setup()
   I2c.begin();
   I2c.pullup(true);
   I2c.setSpeed(1); //400kHz
+  
   // Buzzer
-
-  pinMode(8, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  
   // LCD
-
   lcd.begin(16, 2);
   lcd.createChar(0, lightning);
   lcd.createChar(1, smiley);
@@ -393,7 +409,6 @@ void setup()
 
   lcd.setRGB(0, 0, 0);
   //  lcd.setRGB(colorR, colorG, colorB);
-
   lcd.clear();
   delay(2000);
 
@@ -619,7 +634,7 @@ void loop()
 #endif
     if (WiFiPresent == true)
     {
-      publishPubNubMessage();
+      publishMessage();
     }
 
     milliseconds = millis();
